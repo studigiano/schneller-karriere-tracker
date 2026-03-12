@@ -1,8 +1,9 @@
 import os
 import json
 import re
-from pathlib import Path
 import hashlib
+from pathlib import Path
+from difflib import ndiff
 import requests
 from bs4 import BeautifulSoup
 import xml.etree.ElementTree as ET
@@ -14,7 +15,7 @@ TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; WebsiteTracker/1.0)"
+    "User-Agent": "Mozilla/5.0 (compatible; WebsiteTracker/2.0)"
 }
 
 
@@ -62,17 +63,18 @@ def fetch_sitemap_urls(domain: str):
                             continue
                         subroot = ET.fromstring(sub.text)
                         for u in subroot.findall(".//sm:url/sm:loc", ns):
-                            urls.append(u.text.strip())
+                            if u.text:
+                                urls.append(u.text.strip())
                     except Exception:
                         pass
             else:
                 for u in root.findall(".//sm:url/sm:loc", ns):
-                    urls.append(u.text.strip())
+                    if u.text:
+                        urls.append(u.text.strip())
 
         except Exception:
             pass
 
-    # Duplikate entfernen
     return list(dict.fromkeys(urls))
 
 
@@ -93,13 +95,31 @@ def extract_visible_content(html: str):
         tag.decompose()
 
     title = soup.title.get_text(" ", strip=True) if soup.title else ""
-    h1 = " | ".join(h.get_text(" ", strip=True) for h in soup.find_all("h1"))
+
+    h1_list = [h.get_text(" ", strip=True) for h in soup.find_all("h1")]
+    h2_list = [h.get_text(" ", strip=True) for h in soup.find_all("h2")]
+
+    buttons = []
+    for el in soup.find_all(["a", "button"]):
+        txt = el.get_text(" ", strip=True)
+        if txt and len(txt) <= 120:
+            buttons.append(txt)
+
+    # Duplikate entfernen, Reihenfolge behalten
+    buttons = list(dict.fromkeys(buttons))[:20]
+
     text = soup.get_text("\n", strip=True)
     text = re.sub(r"\s+", " ", text)
 
+    prices = re.findall(r"(?:€\s?\d+[.,]?\d*|\d+[.,]?\d*\s?€)", text)
+    prices = list(dict.fromkeys(prices))[:20]
+
     return {
         "title": title[:500],
-        "h1": h1[:1000],
+        "h1": h1_list[:10],
+        "h2": h2_list[:20],
+        "buttons": buttons,
+        "prices": prices,
         "text": text[:15000]
     }
 
@@ -121,19 +141,89 @@ def save_state(name: str, state: dict):
     path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def format_list(items, max_items=5):
+    if not items:
+        return "-"
+    shown = items[:max_items]
+    text = "\n".join(f"• {item}" for item in shown)
+    if len(items) > max_items:
+        text += f"\n… und {len(items) - max_items} weitere"
+    return text
+
+
+def text_changes(old_text: str, new_text: str, max_changes=6):
+    old_parts = [x.strip() for x in re.split(r"(?<=[.!?])\s+", old_text) if x.strip()]
+    new_parts = [x.strip() for x in re.split(r"(?<=[.!?])\s+", new_text) if x.strip()]
+
+    diff = ndiff(old_parts[:80], new_parts[:80])
+
+    added = []
+    removed = []
+
+    for line in diff:
+        if line.startswith("+ "):
+            added.append(line[2:])
+        elif line.startswith("- "):
+            removed.append(line[2:])
+
+    changes = []
+    for item in removed[:max_changes // 2]:
+        changes.append(f"- Entfernt: {item}")
+    for item in added[:max_changes // 2]:
+        changes.append(f"+ Neu: {item}")
+
+    return changes[:max_changes]
+
+
 def summarize_change(old_data: dict, new_data: dict):
     changes = []
 
     if old_data.get("title") != new_data.get("title"):
-        changes.append(f"Titel geändert: {old_data.get('title')} -> {new_data.get('title')}")
+        changes.append(
+            "Titel geändert:\n"
+            f"ALT: {old_data.get('title', '-')}\n"
+            f"NEU: {new_data.get('title', '-')}"
+        )
 
     if old_data.get("h1") != new_data.get("h1"):
-        changes.append(f"H1 geändert: {old_data.get('h1')} -> {new_data.get('h1')}")
+        changes.append(
+            "H1 geändert:\n"
+            f"ALT:\n{format_list(old_data.get('h1', []), 3)}\n"
+            f"NEU:\n{format_list(new_data.get('h1', []), 3)}"
+        )
+
+    if old_data.get("h2") != new_data.get("h2"):
+        changes.append(
+            "H2 geändert:\n"
+            f"ALT:\n{format_list(old_data.get('h2', []), 4)}\n"
+            f"NEU:\n{format_list(new_data.get('h2', []), 4)}"
+        )
+
+    if old_data.get("prices") != new_data.get("prices"):
+        changes.append(
+            "Preise geändert:\n"
+            f"ALT:\n{format_list(old_data.get('prices', []), 6)}\n"
+            f"NEU:\n{format_list(new_data.get('prices', []), 6)}"
+        )
+
+    if old_data.get("buttons") != new_data.get("buttons"):
+        changes.append(
+            "Buttons geändert:\n"
+            f"ALT:\n{format_list(old_data.get('buttons', []), 6)}\n"
+            f"NEU:\n{format_list(new_data.get('buttons', []), 6)}"
+        )
 
     if old_data.get("text") != new_data.get("text"):
-        changes.append("Text geändert")
+        diffs = text_changes(old_data.get("text", ""), new_data.get("text", ""))
+        if diffs:
+            changes.append("Text geändert:\n" + "\n".join(diffs))
+        else:
+            changes.append("Text geändert")
 
-    return "\n".join(changes[:3]) if changes else "Inhalt geändert"
+    if not changes:
+        return "Inhalt geändert"
+
+    return "\n\n".join(changes[:4])
 
 
 def main():
@@ -166,14 +256,18 @@ def main():
             }
 
             if url not in old_state:
-                send_telegram(f"🆕 Neue Seite bei {name}:\n{url}")
+                send_telegram(
+                    f"🆕 Neue Seite bei {name}:\n{url}\n"
+                    f"Titel: {data.get('title', '-')}"
+                )
             else:
                 old_hash = old_state[url]["hash"]
                 if old_hash != page_hash:
                     summary = summarize_change(old_state[url]["data"], data)
-                    send_telegram(f"🔔 Änderung bei {name}:\n{url}\n{summary}")
+                    send_telegram(
+                        f"🔔 Änderung bei {name}:\n{url}\n\n{summary}"
+                    )
 
-        # prüfen, ob Seiten verschwunden sind
         for old_url in old_state:
             if old_url not in new_state:
                 send_telegram(f"❌ Seite entfernt bei {name}:\n{old_url}")
