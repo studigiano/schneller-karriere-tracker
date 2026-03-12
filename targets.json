@@ -2,7 +2,7 @@
   "targets": [
     {
       "name": "Konkurrent",
-      "domain": "www.beispiel.de"
+      "domain": "https://schneller-karriere.de/index.php"
     }
   ]
 }
