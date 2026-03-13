@@ -3,7 +3,6 @@ import json
 import re
 import hashlib
 from pathlib import Path
-from difflib import ndiff
 import requests
 from bs4 import BeautifulSoup
 import xml.etree.ElementTree as ET
@@ -15,7 +14,7 @@ TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; WebsiteTracker/2.0)"
+    "User-Agent": "Mozilla/5.0 (compatible; WebsiteTracker/3.0)"
 }
 
 
@@ -88,39 +87,86 @@ def fetch_page(url: str):
     return None
 
 
+def normalize_price(text: str) -> str:
+    text = text.replace("\xa0", " ")
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def extract_prices(full_text: str):
+    patterns = [
+        r"(?:€\s?\d+(?:[.,]\d{1,2})?)",
+        r"(?:\d+(?:[.,]\d{1,2})?\s?€)",
+        r"(?:\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?\s?€)"
+    ]
+
+    prices = []
+    for pattern in patterns:
+        found = re.findall(pattern, full_text)
+        for item in found:
+            prices.append(normalize_price(item))
+
+    return list(dict.fromkeys(prices))[:20]
+
+
+def extract_meta_description(soup: BeautifulSoup) -> str:
+    tag = soup.find("meta", attrs={"name": "description"})
+    if tag and tag.get("content"):
+        return tag["content"].strip()[:1000]
+    return ""
+
+
+def extract_buttons(soup: BeautifulSoup):
+    buttons = []
+    for el in soup.find_all(["a", "button"]):
+        txt = el.get_text(" ", strip=True)
+        if txt and len(txt) <= 80:
+            buttons.append(txt.strip())
+
+    # Duplikate entfernen
+    buttons = list(dict.fromkeys(buttons))
+
+    # Nur typische CTA-Buttons behalten
+    cta_keywords = [
+        "anmelden", "jetzt", "kostenlos", "testen", "demo", "beratung",
+        "anfragen", "informieren", "kontakt", "buchen", "starten",
+        "angebot", "mehr erfahren", "platz sichern"
+    ]
+
+    filtered = []
+    for b in buttons:
+        lower = b.lower()
+        if any(k in lower for k in cta_keywords):
+            filtered.append(b)
+
+    return filtered[:15]
+
+
 def extract_visible_content(html: str):
     soup = BeautifulSoup(html, "html.parser")
 
     for tag in soup(["script", "style", "noscript"]):
         tag.decompose()
 
-    title = soup.title.get_text(" ", strip=True) if soup.title else ""
+    title = soup.title.get_text(" ", strip=True)[:500] if soup.title else ""
+    meta_description = extract_meta_description(soup)
 
     h1_list = [h.get_text(" ", strip=True) for h in soup.find_all("h1")]
-    h2_list = [h.get_text(" ", strip=True) for h in soup.find_all("h2")]
+    h1_list = h1_list[:5]
 
-    buttons = []
-    for el in soup.find_all(["a", "button"]):
-        txt = el.get_text(" ", strip=True)
-        if txt and len(txt) <= 120:
-            buttons.append(txt)
+    full_text = soup.get_text("\n", strip=True)
+    full_text = re.sub(r"\s+", " ", full_text)
 
-    # Duplikate entfernen, Reihenfolge behalten
-    buttons = list(dict.fromkeys(buttons))[:20]
+    prices = extract_prices(full_text)
+    buttons = extract_buttons(soup)
 
-    text = soup.get_text("\n", strip=True)
-    text = re.sub(r"\s+", " ", text)
-
-    prices = re.findall(r"(?:€\s?\d+[.,]?\d*|\d+[.,]?\d*\s?€)", text)
-    prices = list(dict.fromkeys(prices))[:20]
-
+    # Nur diese Felder werden später verglichen
     return {
-        "title": title[:500],
-        "h1": h1_list[:10],
-        "h2": h2_list[:20],
-        "buttons": buttons,
+        "title": title,
+        "meta_description": meta_description,
+        "h1": h1_list,
         "prices": prices,
-        "text": text[:15000]
+        "buttons": buttons
     }
 
 
@@ -151,30 +197,6 @@ def format_list(items, max_items=5):
     return text
 
 
-def text_changes(old_text: str, new_text: str, max_changes=6):
-    old_parts = [x.strip() for x in re.split(r"(?<=[.!?])\s+", old_text) if x.strip()]
-    new_parts = [x.strip() for x in re.split(r"(?<=[.!?])\s+", new_text) if x.strip()]
-
-    diff = ndiff(old_parts[:80], new_parts[:80])
-
-    added = []
-    removed = []
-
-    for line in diff:
-        if line.startswith("+ "):
-            added.append(line[2:])
-        elif line.startswith("- "):
-            removed.append(line[2:])
-
-    changes = []
-    for item in removed[:max_changes // 2]:
-        changes.append(f"- Entfernt: {item}")
-    for item in added[:max_changes // 2]:
-        changes.append(f"+ Neu: {item}")
-
-    return changes[:max_changes]
-
-
 def summarize_change(old_data: dict, new_data: dict):
     changes = []
 
@@ -185,18 +207,18 @@ def summarize_change(old_data: dict, new_data: dict):
             f"NEU: {new_data.get('title', '-')}"
         )
 
+    if old_data.get("meta_description") != new_data.get("meta_description"):
+        changes.append(
+            "Meta Description geändert:\n"
+            f"ALT: {old_data.get('meta_description', '-')}\n"
+            f"NEU: {new_data.get('meta_description', '-')}"
+        )
+
     if old_data.get("h1") != new_data.get("h1"):
         changes.append(
             "H1 geändert:\n"
             f"ALT:\n{format_list(old_data.get('h1', []), 3)}\n"
             f"NEU:\n{format_list(new_data.get('h1', []), 3)}"
-        )
-
-    if old_data.get("h2") != new_data.get("h2"):
-        changes.append(
-            "H2 geändert:\n"
-            f"ALT:\n{format_list(old_data.get('h2', []), 4)}\n"
-            f"NEU:\n{format_list(new_data.get('h2', []), 4)}"
         )
 
     if old_data.get("prices") != new_data.get("prices"):
@@ -208,22 +230,15 @@ def summarize_change(old_data: dict, new_data: dict):
 
     if old_data.get("buttons") != new_data.get("buttons"):
         changes.append(
-            "Buttons geändert:\n"
+            "CTA / Buttons geändert:\n"
             f"ALT:\n{format_list(old_data.get('buttons', []), 6)}\n"
             f"NEU:\n{format_list(new_data.get('buttons', []), 6)}"
         )
 
-    if old_data.get("text") != new_data.get("text"):
-        diffs = text_changes(old_data.get("text", ""), new_data.get("text", ""))
-        if diffs:
-            changes.append("Text geändert:\n" + "\n".join(diffs))
-        else:
-            changes.append("Text geändert")
-
     if not changes:
-        return "Inhalt geändert"
+        return None
 
-    return "\n\n".join(changes[:4])
+    return "\n\n".join(changes[:5])
 
 
 def main():
@@ -264,9 +279,10 @@ def main():
                 old_hash = old_state[url]["hash"]
                 if old_hash != page_hash:
                     summary = summarize_change(old_state[url]["data"], data)
-                    send_telegram(
-                        f"🔔 Änderung bei {name}:\n{url}\n\n{summary}"
-                    )
+                    if summary:
+                        send_telegram(
+                            f"🔔 Relevante Änderung bei {name}:\n{url}\n\n{summary}"
+                        )
 
         for old_url in old_state:
             if old_url not in new_state:
