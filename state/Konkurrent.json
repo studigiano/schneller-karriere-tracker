@@ -70,7 +70,7 @@
     }
   },
   "https://schneller-karriere.de/kurse/personalfachkaufmann/": {
-    "hash": "dae998bca630e0b0b1fa373924d668135525997ff4f5ef656121ddfe36b30c2a",
+    "hash": "8a7e2767b99c286ee8d2ce730fff65852130a54525e08a3309b6cc49314957d2",
     "data": {
       "title": "Personalfachkauffrau /-mann IHK: Kompakt-Kurs in 18 Tagen",
       "meta_description": "Ihr Karrieresprung im Personalwesen: Werden Sie Personalfachkauffrau/-mann (IHK). Förderung durch Aufstiegs-BAföG. Vor Ort oder online. Jetzt informieren!",
@@ -91,7 +91,6 @@
         "Kontakt",
         "Infoabend buchen",
         "Jetzt starten",
-        "Jetzt anmelden Wird geladen…",
         "Jetzt anmelden",
         "Jetzt Infoabend buchen",
         "Jetzt loslegen"
@@ -400,7 +399,7 @@
     }
   },
   "https://schneller-karriere.de/infoabend/": {
-    "hash": "735e72872121e4e37cb331675aa15ba2e02b1476e71f63bf0179bcd6ff07eea5",
+    "hash": "9aeb947f7db013f9ceab4a59a95a45ede9eaf681fdb331b027adef2eaa09d9b7",
     "data": {
       "title": "Infoabend: Ihr Weg zum IHK-Abschluss mit Schneller Karriere",
       "meta_description": "Infoabend für Ihre Weiterbildung: Erfahren Sie alles über unsere digitale Lernflatrate und flexiblen Kursmodelle. Jetzt kostenlosen Platz reservieren.",
@@ -411,9 +410,7 @@
       "buttons": [
         "Kontakt",
         "Infoabend buchen",
-        "Jetzt buchen",
-        "Jetzt anmelden Wird geladen…",
-        "Jetzt anmelden"
+        "Jetzt buchen"
       ]
     }
   },
