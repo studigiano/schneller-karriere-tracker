@@ -1,10 +1,12 @@
 {
   "https://schneller-karriere.de/": {
-    "hash": "5c0b9b70444d06675823cefa03a961f38c878cc43685dcacdc5b97e93c56c902",
+    "hash": "d5b9649b06af95cec22d16c05588c32043d60737a807896c796a3384d9b9fd4b",
     "data": {
       "title": "Akademie Schneller-Karriere: Weiterbildungen mit IHK-Abschluss",
       "meta_description": "Weiterbildungen mit IHK-Zertifikat: Schneller-Karriere bietet Lehrgänge für staatlich Anerkannte Qualifikationen in Mannheim, Würzburg, Stuttgart & online.",
-      "h1": [],
+      "h1": [
+        "A K A D E M I E S c h n e l l e r - K a r r i e r e"
+      ],
       "prices": [],
       "buttons": [
         "Kontakt",
